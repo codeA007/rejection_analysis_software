@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { DB_PATH, SCHEMA_PATH } from './paths.js'
 import { migrateSchemaV2 } from './migrations/v2-parts-columns.js'
+import { migrateSchemaV3 } from './migrations/v3-app-settings.js'
 
 let db
 
@@ -14,6 +15,7 @@ function openDatabase() {
   const schema = readFileSync(SCHEMA_PATH, 'utf8')
   db.exec(schema)
   migrateSchemaV2(db)
+  migrateSchemaV3(db)
 }
 
 export function getDb() {
@@ -21,6 +23,7 @@ export function getDb() {
     openDatabase()
   } else {
     migrateSchemaV2(db)
+    migrateSchemaV3(db)
   }
   return db
 }

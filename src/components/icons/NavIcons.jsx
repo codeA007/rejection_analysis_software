@@ -22,6 +22,16 @@ export function RejectionIcon({ className }) {
   )
 }
 
+export function YieldIcon({ className }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+      <path strokeLinecap="round" d="M12 3v18M3 12h18" />
+      <circle cx="12" cy="12" r="9" />
+      <path strokeLinecap="round" d="M8 12h8M12 8v8" />
+    </svg>
+  )
+}
+
 export function AnalysisIcon({ className }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">

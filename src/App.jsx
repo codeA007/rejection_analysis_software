@@ -7,6 +7,7 @@ import PartsPage from './features/parts/pages/PartsPage'
 import ProductionPage from './features/production/pages/ProductionPage'
 import RejectionsPage from './features/rejections/pages/RejectionsPage'
 import MonthlyPage from './features/monthly/pages/MonthlyPage'
+import YieldPage from './features/yield/pages/YieldPage'
 import SettingsPage from './features/settings/pages/SettingsPage'
 
 function App() {
@@ -24,6 +25,7 @@ function App() {
               <Route path="/parts" element={<PartsPage />} />
               <Route path="/production" element={<ProductionPage />} />
               <Route path="/rejections" element={<RejectionsPage />} />
+              <Route path="/yield" element={<YieldPage />} />
               <Route path="/monthly" element={<MonthlyPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />

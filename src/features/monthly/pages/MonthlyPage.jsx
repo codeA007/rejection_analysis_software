@@ -1,11 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Bar, Doughnut, Line } from 'react-chartjs-2'
 import { fetchMonthlyAnalysis } from '../../../api/analysis'
 import { fetchProductionEntries } from '../../../api/production'
 import { fetchRejections } from '../../../api/rejections'
 import { fetchRejectionTypes } from '../../../api/rejectionTypes'
+import { fetchHeatYieldReport } from '../../../api/yield'
 import ChartCard from '../../../components/ui/ChartCard'
 import StatCard from '../../../components/ui/StatCard'
+import YieldByDateTable from '../../yield/components/YieldByDateTable'
 import {
   buttonSecondaryClassName,
   cardClassName,
@@ -39,6 +42,7 @@ export default function MonthlyPage() {
   const [productionEntries, setProductionEntries] = useState([])
   const [rejectionEntries, setRejectionEntries] = useState([])
   const [rejectionTypes, setRejectionTypes] = useState([])
+  const [yieldReport, setYieldReport] = useState(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
@@ -60,11 +64,13 @@ export default function MonthlyPage() {
       fetchMonthlyAnalysis({ from: dateFrom, to: dateTo }),
       fetchProductionEntries({ from: dateFrom, to: dateTo }),
       fetchRejections({ from: dateFrom, to: dateTo }),
+      fetchHeatYieldReport({ from: dateFrom, to: dateTo }),
     ])
-      .then(([analysisData, productionData, rejectionData]) => {
+      .then(([analysisData, productionData, rejectionData, yieldData]) => {
         setAnalysis(analysisData)
         setProductionEntries(productionData)
         setRejectionEntries(rejectionData)
+        setYieldReport(yieldData)
       })
       .catch((err) => setError(err.message || 'Unable to load monthly analysis.'))
       .finally(() => setLoading(false))
@@ -118,6 +124,31 @@ export default function MonthlyPage() {
   const totalPouredWeight =
     analysis?.totalPouredWeight ??
     productionEntries.reduce((sum, entry) => sum + (entry.pouredWeight ?? 0), 0)
+
+  const yieldSummary = yieldReport?.summary
+  const yieldDays = yieldReport?.days ?? []
+  const yieldChargeKg = yieldReport?.chargeKg ?? 350
+
+  const dailyYieldTrendData = useMemo(() => {
+    const sortedDays = [...yieldDays].sort((a, b) => a.productionDate.localeCompare(b.productionDate))
+    return {
+      labels: sortedDays.map((row) => formatDisplayDate(row.productionDate)),
+      datasets: [
+        {
+          label: 'Daily yield %',
+          data: sortedDays.map((row) => row.yieldPercent),
+          borderColor: '#b45309',
+          backgroundColor: 'rgba(180, 83, 9, 0.12)',
+          tension: 0.3,
+        },
+      ],
+    }
+  }, [yieldDays])
+
+  function formatPercent(value) {
+    if (value === null || value === undefined) return '0'
+    return Number(value).toLocaleString('en-IN', { maximumFractionDigits: 2 })
+  }
 
   function handleDownloadExcel() {
     if (!dateFrom || !dateTo || isExportingRef.current) return
@@ -210,11 +241,16 @@ export default function MonthlyPage() {
         <div className={cardClassName}>Loading analysis...</div>
       ) : (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
             <StatCard
               label="Total Poured"
               value={`${formatWeight(totalPouredWeight)} kg`}
               hint="Production weight in selected period"
+            />
+            <StatCard
+              label="Rejected Weight"
+              value={`${formatWeight(analysis?.totalRejectedWeight ?? 0)} kg`}
+              hint="Rejected casting weight (qty × part weight)"
             />
             <StatCard label="Production Qty" value={analysis?.totalProduction ?? 0} />
             <StatCard label="Rejected Qty" value={analysis?.totalRejections ?? 0} />
@@ -266,6 +302,91 @@ export default function MonthlyPage() {
               )}
             </div>
           </ChartCard>
+
+          <div className={cardClassName}>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-base font-semibold text-neutral-900">Furnace yield analysis</h3>
+                <p className="mt-1 text-sm text-neutral-500">
+                  Poured weight ÷ {formatWeight(yieldChargeKg)} kg per heat in the selected range.{' '}
+                  <Link to="/settings" className="font-semibold text-[#2d6a6a] hover:text-[#255959]">
+                    Furnace settings
+                  </Link>
+                </p>
+              </div>
+              <Link
+                to="/yield"
+                className="text-sm font-semibold text-[#2d6a6a] transition-colors hover:text-[#255959]"
+              >
+                Open Yield tab →
+              </Link>
+            </div>
+
+            <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <StatCard
+                label="Furnace heats"
+                value={yieldSummary?.heatCount ?? 0}
+                hint="Distinct heats in range"
+                tone="violet"
+              />
+              <StatCard
+                label="Metal charged"
+                value={`${formatWeight(yieldSummary?.totalMetalCharged ?? 0)} kg`}
+                hint={`${yieldSummary?.heatCount ?? 0} × ${formatWeight(yieldChargeKg)} kg`}
+                tone="amber"
+              />
+              <StatCard
+                label="Yield poured"
+                value={`${formatWeight(yieldSummary?.totalPoured ?? 0)} kg`}
+                hint="From production entries with part weight"
+                tone="teal"
+              />
+              <StatCard
+                label="Overall yield"
+                value={`${formatPercent(yieldSummary?.overallYield ?? 0)}%`}
+                hint="Total poured ÷ total metal charged"
+                tone="rose"
+              />
+            </div>
+
+            {yieldSummary?.missingWeightEntryCount > 0 ? (
+              <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                {yieldSummary.missingWeightEntryCount} production{' '}
+                {yieldSummary.missingWeightEntryCount === 1 ? 'entry' : 'entries'} excluded from yield
+                (no part weight).
+              </div>
+            ) : null}
+
+            <div className="mt-6">
+              <ChartCard title="Daily furnace yield" description="Yield % by production date">
+                <div className="h-64">
+                  {yieldDays.length ? (
+                    <Line
+                      data={dailyYieldTrendData}
+                      options={{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: { y: { beginAtZero: true, title: { display: true, text: '%' } } },
+                      }}
+                    />
+                  ) : (
+                    <p className="text-sm text-neutral-500">No production data for yield in this range.</p>
+                  )}
+                </div>
+              </ChartCard>
+            </div>
+
+            <div className="mt-6 border-t border-neutral-200 pt-6">
+              <h4 className="text-sm font-semibold text-neutral-900">Yield by date</h4>
+              <p className="mt-1 text-sm text-neutral-500">Expand a date to see yield per heat.</p>
+              <div className="mt-4">
+                <YieldByDateTable
+                  days={yieldDays}
+                  emptyTitle="No production in selected range"
+                />
+              </div>
+            </div>
+          </div>
 
           <div className="grid gap-4 xl:grid-cols-2">
             <div className={cardClassName}>

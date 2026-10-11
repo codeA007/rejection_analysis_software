@@ -3,6 +3,7 @@ import {
   ProductionIcon,
   RejectionIcon,
   AnalysisIcon,
+  YieldIcon,
   SettingsIcon,
   PartsIcon,
 } from '../components/icons/NavIcons'
@@ -29,6 +30,13 @@ export const NAV_ITEMS = [
     path: '/rejections',
     pageTitle: 'Rejection Entry',
     icon: RejectionIcon,
+  },
+  {
+    id: 'yield',
+    label: 'Yield',
+    path: '/yield',
+    pageTitle: 'Furnace Yield',
+    icon: YieldIcon,
   },
   {
     id: 'monthly',

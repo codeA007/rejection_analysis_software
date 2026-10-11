@@ -85,6 +85,32 @@ export function listRejections({ from, to } = {}) {
     .map(mapRejectionRow)
 }
 
+export function getTotalRejectedWeight({ from, to } = {}) {
+  const db = getDb()
+  const conditions = ['p.weight IS NOT NULL']
+  const params = []
+
+  if (from) {
+    conditions.push('r.rejection_date >= ?')
+    params.push(from)
+  }
+  if (to) {
+    conditions.push('r.rejection_date <= ?')
+    params.push(to)
+  }
+
+  const row = db
+    .prepare(
+      `SELECT COALESCE(SUM(r.quantity * p.weight), 0) AS total
+       FROM rejections r
+       JOIN parts p ON p.id = r.part_id
+       WHERE ${conditions.join(' AND ')}`,
+    )
+    .get(...params)
+
+  return row?.total ?? 0
+}
+
 export function createRejection({
   partName,
   rejectionTypeId,

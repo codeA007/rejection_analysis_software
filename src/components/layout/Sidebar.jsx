@@ -1,6 +1,7 @@
 import { useLayout } from './LayoutContext'
 import { NavLink } from 'react-router-dom'
-import { APP_NAME, APP_VERSION } from '../../constants/app'
+import AppLogo from '../branding/AppLogo'
+import { APP_VERSION } from '../../constants/app'
 import { NAV_ITEMS } from '../../config/navigation'
 
 function CloseIcon() {
@@ -68,10 +69,7 @@ export default function Sidebar() {
       >
         <header className="flex items-start justify-between gap-3 border-b border-neutral-200 px-6 py-6">
           <div className="min-w-0">
-            <h1 className="text-base font-bold tracking-tight text-neutral-900">{APP_NAME}</h1>
-            <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.2em] text-neutral-400">
-              {APP_VERSION}
-            </p>
+            <AppLogo size="sm" showWordmark compactWordmark subtitle={APP_VERSION} />
           </div>
           <button
             type="button"

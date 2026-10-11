@@ -1,5 +1,6 @@
 import { getDb } from './connection.js'
 import { getTotalPouredWeight } from './production-queries.js'
+import { getTotalRejectedWeight } from './rejection-queries.js'
 
 function roundRate(value) {
   return Math.round(value * 100) / 100
@@ -129,6 +130,7 @@ export function getMonthlyAnalysis({ from, to }) {
     }))
 
   const totalPouredWeight = getTotalPouredWeight({ from, to })
+  const totalRejectedWeight = getTotalRejectedWeight({ from, to })
 
   return {
     from,
@@ -136,6 +138,7 @@ export function getMonthlyAnalysis({ from, to }) {
     totalProduction,
     totalRejections,
     totalPouredWeight,
+    totalRejectedWeight,
     rejectionRate,
     byType,
     byPart,

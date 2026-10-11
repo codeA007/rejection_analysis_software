@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { fetchFurnaceSettings } from '../../../api/settings'
 import { fetchParts } from '../../../api/parts'
 import {
   createProductionEntry,
@@ -30,6 +31,8 @@ import {
   incrementHeatNumber,
 } from '../../../utils/heatNumberUtils'
 import { useSubmitGuard } from '../../../hooks/useSubmitGuard'
+import { computeHeatYield, sumPouredKgForHeat } from '../../../utils/heatYieldUtils'
+import { parseQuantityExpression } from '../../../utils/parseQuantityExpression'
 
 export default function ProductionPage() {
   const [parts, setParts] = useState([])
@@ -42,6 +45,7 @@ export default function ProductionPage() {
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [hasLoaded, setHasLoaded] = useState(false)
+  const [furnaceChargeKg, setFurnaceChargeKg] = useState(350)
 
   const formRef = useRef(null)
   const partInputRef = useRef(null)
@@ -64,8 +68,9 @@ export default function ProductionPage() {
   }
 
   useEffect(() => {
-    loadData()
-      .then((entriesData) => {
+    Promise.all([loadData(), fetchFurnaceSettings().catch(() => ({ furnaceChargeKg: 350 }))])
+      .then(([entriesData, furnaceSettings]) => {
+        setFurnaceChargeKg(furnaceSettings.furnaceChargeKg)
         setHeatNumber(getSuggestedHeatNumberForMonth(productionDate, entriesData))
         setHasLoaded(true)
         window.requestAnimationFrame(() => dateInputRef.current?.focus())
@@ -88,31 +93,7 @@ export default function ProductionPage() {
 
   async function handleSubmit(event) {
     event.preventDefault()
-
-    await runGuarded(async () => {
-      setError('')
-      setMessage('')
-      setIsSaving(true)
-
-      try {
-        await createProductionEntry({
-          partName,
-          quantity,
-          heatNumber,
-          productionDate,
-        })
-        setPartName('')
-        setQuantity('')
-        setMessage('Production entry saved.')
-        const entriesData = await loadData()
-        syncHeatNumber(entriesData)
-        window.requestAnimationFrame(() => partInputRef.current?.focus())
-      } catch (err) {
-        setError(err.message || 'Unable to save production entry.')
-      } finally {
-        setIsSaving(false)
-      }
-    })
+    await runGuarded(submitProductionEntry)
   }
 
   function handleFormKeyDown(event) {
@@ -140,14 +121,14 @@ export default function ProductionPage() {
       return
     }
 
-    if (event.key === 'Enter' && isTextInput && target.type === 'text') {
+    if (event.key === 'Enter' && isTextInput && target.id === 'production-quantity') {
       event.preventDefault()
+      formRef.current?.requestSubmit()
       return
     }
 
-    if (event.key === 'Enter' && isTextInput && target.type === 'number') {
+    if (event.key === 'Enter' && isTextInput && target.type === 'text') {
       event.preventDefault()
-      formRef.current?.requestSubmit()
       return
     }
   }
@@ -182,9 +163,83 @@ export default function ProductionPage() {
     (entry) => entry.pouredWeight !== null && entry.pouredWeight !== undefined,
   )
 
+  const currentHeatYield = useMemo(() => {
+    const pouredKg = sumPouredKgForHeat(monthEntries, heatNumber)
+    return computeHeatYield({ pouredKg, chargeKg: furnaceChargeKg })
+  }, [monthEntries, heatNumber, furnaceChargeKg])
+
+  const projectedHeatYield = useMemo(() => {
+    const selectedPart = parts.find(
+      (part) => part.partName === partName || part.displayLabel === partName,
+    )
+    const qty = parseQuantityExpression(quantity)
+    const partWeight = selectedPart?.weight
+    if (!partName || qty == null || partWeight == null) {
+      return null
+    }
+    const extraPoured = qty * partWeight
+    const pouredKg = sumPouredKgForHeat(monthEntries, heatNumber) + extraPoured
+    return computeHeatYield({ pouredKg, chargeKg: furnaceChargeKg })
+  }, [parts, partName, quantity, monthEntries, heatNumber, furnaceChargeKg])
+
   function formatWeight(value) {
     if (value === null || value === undefined) return '—'
     return Number(value).toLocaleString('en-IN', { maximumFractionDigits: 2 })
+  }
+
+  const pouredKgAfterSave = projectedHeatYield?.pouredKg ?? currentHeatYield.pouredKg
+  const heatPouredExceedsCharge = pouredKgAfterSave > furnaceChargeKg
+
+  function getPouredKgAfterSaveFromForm() {
+    const existingPoured = sumPouredKgForHeat(monthEntries, heatNumber)
+    const selectedPart = parts.find(
+      (part) => part.partName === partName || part.displayLabel === partName,
+    )
+    const qty = parseQuantityExpression(quantity)
+    const partWeight = selectedPart?.weight
+    if (qty == null || partWeight == null) {
+      return existingPoured
+    }
+    return existingPoured + qty * partWeight
+  }
+
+  async function submitProductionEntry() {
+    const pouredAfterSave = getPouredKgAfterSaveFromForm()
+    if (pouredAfterSave > furnaceChargeKg) {
+      const proceed = window.confirm(
+        `Poured weight for heat ${heatNumber.trim()} would be ${pouredAfterSave.toLocaleString('en-IN', { maximumFractionDigits: 2 })} kg, which is above the ${furnaceChargeKg} kg metal charged per heat.\n\nCross-check your data. Save anyway?`,
+      )
+      if (!proceed) return
+    }
+
+    setError('')
+    setMessage('')
+    setIsSaving(true)
+
+    try {
+      const parsedQuantity = parseQuantityExpression(quantity)
+      if (parsedQuantity == null) {
+        setError('Enter a valid quantity (e.g. 12 or 6*2).')
+        return
+      }
+
+      await createProductionEntry({
+        partName,
+        quantity: parsedQuantity,
+        heatNumber,
+        productionDate,
+      })
+      setPartName('')
+      setQuantity('')
+      setMessage('Production entry saved.')
+      const entriesData = await loadData()
+      syncHeatNumber(entriesData)
+      window.requestAnimationFrame(() => partInputRef.current?.focus())
+    } catch (err) {
+      setError(err.message || 'Unable to save production entry.')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   return (
@@ -233,6 +288,43 @@ export default function ProductionPage() {
                 Next heat
               </button>
             </div>
+            {heatNumber.trim() ? (
+              <div
+                className={[
+                  'mt-3 rounded-lg border px-4 py-3 text-sm',
+                  heatPouredExceedsCharge
+                    ? 'border-amber-300 bg-amber-50'
+                    : 'border-[#2d6a6a]/15 bg-[#2d6a6a]/5',
+                ].join(' ')}
+              >
+                <p className="font-semibold text-neutral-900">
+                  Heat {heatNumber.trim()} yield: {currentHeatYield.yieldPercent}%
+                </p>
+                <p className="mt-1 tabular-nums text-neutral-600">
+                  {formatWeight(currentHeatYield.pouredKg)} / {formatWeight(furnaceChargeKg)} kg poured
+                </p>
+                {projectedHeatYield ? (
+                  <p className="mt-2 border-t border-[#2d6a6a]/10 pt-2 text-neutral-600">
+                    After save:{' '}
+                    <span
+                      className={
+                        heatPouredExceedsCharge ? 'font-semibold text-amber-800' : 'font-semibold text-[#2d6a6a]'
+                      }
+                    >
+                      {projectedHeatYield.yieldPercent}%
+                    </span>{' '}
+                    ({formatWeight(projectedHeatYield.pouredKg)} / {formatWeight(furnaceChargeKg)} kg)
+                  </p>
+                ) : null}
+                {heatPouredExceedsCharge ? (
+                  <p className="mt-2 border-t border-amber-200 pt-2 text-amber-900">
+                    Poured weight for this heat ({formatWeight(pouredKgAfterSave)} kg) exceeds metal
+                    charged per heat ({formatWeight(furnaceChargeKg)} kg). Cross-check part weights,
+                    quantities, and heat number.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
           </div>
 
           <div>
@@ -252,13 +344,19 @@ export default function ProductionPage() {
             <input
               ref={quantityInputRef}
               id="production-quantity"
-              type="number"
-              min="0"
-              step="any"
+              type="text"
+              inputMode="decimal"
+              autoComplete="off"
               value={quantity}
               onChange={(event) => setQuantity(event.target.value)}
+              onBlur={() => {
+                const parsed = parseQuantityExpression(quantity)
+                if (parsed != null) {
+                  setQuantity(String(parsed))
+                }
+              }}
               className={inputClassName}
-              placeholder="Enter quantity"
+              placeholder="e.g. 12 or 6*2"
             />
           </div>
         </div>

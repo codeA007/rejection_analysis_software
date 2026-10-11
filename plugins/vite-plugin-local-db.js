@@ -1,5 +1,7 @@
 import { getDb } from '../database/connection.js'
 import { getMonthlyAnalysis, getDashboardSummary } from '../database/analysis-queries.js'
+import { getFurnaceChargeKg, setFurnaceChargeKg } from '../database/app-settings-queries.js'
+import { getHeatYieldReport } from '../database/yield-queries.js'
 import { createPart, deletePart, listParts, updatePart } from '../database/part-queries.js'
 import { importParts, previewPartImport } from '../database/part-import-queries.js'
 import {
@@ -182,6 +184,23 @@ async function handleApiRequest(req, res) {
     if (pathname === '/api/analysis/dashboard' && req.method === 'GET') {
       sendJson(res, 200, getDashboardSummary(getDateRange(searchParams)))
       return
+    }
+
+    if (pathname === '/api/analysis/yield' && req.method === 'GET') {
+      sendJson(res, 200, getHeatYieldReport(getDateRange(searchParams)))
+      return
+    }
+
+    if (pathname === '/api/settings/furnace') {
+      if (req.method === 'GET') {
+        sendJson(res, 200, { furnaceChargeKg: getFurnaceChargeKg() })
+        return
+      }
+      if (req.method === 'PUT') {
+        const body = await readJsonBody(req)
+        sendJson(res, 200, setFurnaceChargeKg(body.furnaceChargeKg))
+        return
+      }
     }
 
     sendJson(res, 404, { error: 'Not found' })

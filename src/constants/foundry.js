@@ -1,0 +1,1 @@
+export const DEFAULT_FURNACE_CHARGE_KG = 350

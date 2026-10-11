@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { fetchFurnaceSettings, updateFurnaceSettings } from '../../../api/settings'
 import {
   createRejectionType,
   deleteRejectionType,
@@ -6,6 +7,7 @@ import {
   reorderRejectionTypes,
   updateRejectionType,
 } from '../../../api/rejectionTypes'
+import { DEFAULT_FURNACE_CHARGE_KG } from '../../../constants/foundry'
 import { useSubmitGuard } from '../../../hooks/useSubmitGuard'
 import {
   buttonPrimaryClassName,
@@ -27,6 +29,8 @@ export default function SettingsPage() {
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [isSaving, setIsSaving] = useState(false)
+  const [furnaceChargeKg, setFurnaceChargeKg] = useState(String(DEFAULT_FURNACE_CHARGE_KG))
+  const [furnaceSaving, setFurnaceSaving] = useState(false)
   const { runGuarded } = useSubmitGuard()
   const isReorderingRef = useRef(false)
 
@@ -37,7 +41,30 @@ export default function SettingsPage() {
 
   useEffect(() => {
     loadTypes().catch((err) => setError(err.message || 'Unable to load rejection types.'))
+    fetchFurnaceSettings()
+      .then((data) => setFurnaceChargeKg(String(data.furnaceChargeKg)))
+      .catch(() => {})
   }, [])
+
+  async function handleSaveFurnace(event) {
+    event.preventDefault()
+
+    await runGuarded(async () => {
+      setError('')
+      setMessage('')
+      setFurnaceSaving(true)
+
+      try {
+        const result = await updateFurnaceSettings({ furnaceChargeKg: Number(furnaceChargeKg) })
+        setFurnaceChargeKg(String(result.furnaceChargeKg))
+        setMessage('Furnace settings saved.')
+      } catch (err) {
+        setError(err.message || 'Unable to save furnace settings.')
+      } finally {
+        setFurnaceSaving(false)
+      }
+    })
+  }
 
   async function handleAddType(event) {
     event.preventDefault()
@@ -143,6 +170,34 @@ export default function SettingsPage() {
 
   return (
     <div className={pageClassName}>
+      <div className={cardClassName}>
+        <h2 className="text-lg font-semibold text-neutral-900">Furnace</h2>
+        <p className="mt-1 text-sm text-neutral-500">
+          Metal charged per furnace heat. Used on the Yield tab and Production heat summary.
+        </p>
+
+        <form onSubmit={handleSaveFurnace} className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div className="flex-1 sm:max-w-xs">
+            <label className={labelClassName} htmlFor="furnace-charge-kg">
+              Metal charged per heat (kg)
+            </label>
+            <input
+              id="furnace-charge-kg"
+              type="number"
+              min="0"
+              step="any"
+              value={furnaceChargeKg}
+              onChange={(event) => setFurnaceChargeKg(event.target.value)}
+              className={inputClassName}
+              required
+            />
+          </div>
+          <button type="submit" disabled={furnaceSaving} className={buttonPrimaryClassName}>
+            {furnaceSaving ? 'Saving...' : 'Save Furnace Settings'}
+          </button>
+        </form>
+      </div>
+
       <div className={cardClassName}>
         <h2 className="text-lg font-semibold text-neutral-900">Rejection Types</h2>
         <p className="mt-1 text-sm text-neutral-500">

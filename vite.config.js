@@ -6,6 +6,12 @@ import localDbPlugin from './plugins/vite-plugin-local-db.js'
 export default defineConfig({
   plugins: [react(), tailwindcss(), localDbPlugin()],
   server: {
+    host: 'localhost',
+    port: 5176,
+    strictPort: true,
+  },
+  preview: {
+    host: 'localhost',
     port: 5176,
     strictPort: true,
   },

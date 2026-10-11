@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { fetchDashboardSummary } from '../../../api/analysis'
 import StatCard from '../../../components/ui/StatCard'
 import { pageClassName } from '../../../components/ui/formStyles'
+import AppLogo from '../../../components/branding/AppLogo'
 import { APP_NAME } from '../../../constants/app'
 import {
   formatDisplayDate,
@@ -107,15 +108,17 @@ export default function HomePage() {
   return (
     <div className={pageClassName}>
       <section className="shrink-0 rounded-2xl border border-[#2d6a6a]/10 bg-gradient-to-br from-[#2d6a6a]/5 via-white to-white p-5 sm:p-6">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#2d6a6a]">
-          {APP_NAME}
-        </p>
-        <h2 className="mt-2 text-2xl font-bold tracking-tight text-neutral-900 sm:text-3xl">
-          {monthLabel}
-        </h2>
-        <p className="mt-2 text-sm text-neutral-500 sm:text-base">
-          {formatDisplayDate(monthRange.start)} – {formatDisplayDate(monthRange.end)}
-        </p>
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <AppLogo size="xl" showWordmark subtitle={APP_NAME} />
+          <div className="sm:text-right">
+            <h2 className="text-2xl font-bold tracking-tight text-neutral-900 sm:text-3xl">
+              {monthLabel}
+            </h2>
+            <p className="mt-2 text-sm text-neutral-500 sm:text-base">
+              {formatDisplayDate(monthRange.start)} – {formatDisplayDate(monthRange.end)}
+            </p>
+          </div>
+        </div>
       </section>
 
       {error ? (

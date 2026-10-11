@@ -1,5 +1,8 @@
 import { getDb } from '../database/connection.js'
 import { getDashboardSummary, getMonthlyAnalysis } from '../database/analysis-queries.js'
+import { getFurnaceChargeKg, setFurnaceChargeKg } from '../database/app-settings-queries.js'
+import { getHeatYieldReport } from '../database/yield-queries.js'
+import { parseQuantityExpression } from '../src/utils/parseQuantityExpression.js'
 import { importParts, previewPartImport } from '../database/part-import-queries.js'
 import { createPart, deletePart, listParts, updatePart } from '../database/part-queries.js'
 import {
@@ -83,6 +86,14 @@ function runTests() {
     ])
     assert(importResult.inserted === 2, 'inserts weighted import rows')
 
+    console.log('\n[Quantity expression]')
+    assert(parseQuantityExpression('12') === 12, 'parses plain quantity')
+    assert(parseQuantityExpression('6*2') === 12, 'parses multiplied quantity')
+    assert(parseQuantityExpression('6 * 2') === 12, 'parses multiplied quantity with spaces')
+    assert(parseQuantityExpression('2*3*4') === 24, 'parses chained multiplication')
+    assert(parseQuantityExpression('6*0') === null, 'rejects zero product')
+    assert(parseQuantityExpression('6+2') === null, 'rejects unsupported operators')
+
     console.log('\n[Production]')
     const production = createProductionEntry({
       partName: unique,
@@ -150,9 +161,54 @@ function runTests() {
     const analysis = getMonthlyAnalysis({ from: '2026-09-01', to: '2026-09-30' })
     assert(analysis.totalProduction >= 10, 'analysis totals production quantity')
     assert(analysis.totalRejections >= 2, 'analysis totals rejection quantity')
+    assert(analysis.totalRejectedWeight >= 26, 'analysis totals rejected weight from part catalog')
 
     const dashboard = getDashboardSummary({ from: '2026-09-01', to: '2026-09-30' })
     assert(dashboard.partCount >= 1, 'dashboard counts active parts')
+
+    console.log('\n[Yield]')
+    assert(getFurnaceChargeKg() === 350, 'default furnace charge is 350 kg')
+
+    createProductionEntry({
+      partName: unique,
+      quantity: 10,
+      heatNumber: 'YLD-01',
+      productionDate: '2099-03-01',
+    })
+    createProductionEntry({
+      partName: unique,
+      quantity: 5,
+      heatNumber: 'YLD-01',
+      productionDate: '2099-03-01',
+    })
+    createProductionEntry({
+      partName: unique,
+      quantity: 10,
+      heatNumber: 'YLD-02',
+      productionDate: '2099-03-03',
+    })
+
+    const yieldReport = getHeatYieldReport({ from: '2099-03-01', to: '2099-03-31' })
+    assert(yieldReport.heats.length === 2, 'yield report groups distinct heats')
+    const yieldHeatOne = yieldReport.heats.find((row) => row.heatNumber === 'YLD-01')
+    assert(yieldHeatOne?.pouredKg === 195, 'yield sums poured kg for the same heat')
+    assert(yieldHeatOne?.yieldPercent === 55.71, 'yield percent uses furnace charge per heat')
+    assert(yieldReport.summary.totalPoured === 325, 'yield totals poured weight in period')
+    assert(yieldReport.summary.overallYield === 46.43, 'overall yield uses heat count times charge kg')
+
+    assert(yieldReport.days.length === 2, 'yield report groups production by date')
+    const yieldDayOne = yieldReport.days.find((row) => row.productionDate === '2099-03-01')
+    assert(yieldDayOne?.entryCount === 2, 'yield day clubs multiple entries on the same date')
+    assert(yieldDayOne?.pouredKg === 195, 'yield day sums poured kg for the date')
+    assert(yieldDayOne?.yieldPercent === 55.71, 'yield day percent uses heats on that date')
+    assert(yieldDayOne?.heats.length === 1, 'yield day lists one heat for same heat on date')
+    assert(yieldDayOne?.heats[0]?.entryCount === 2, 'yield heat child counts entries on date')
+
+    const yieldDayThree = yieldReport.days.find((row) => row.productionDate === '2099-03-03')
+    assert(yieldDayThree?.yieldPercent === 37.14, 'yield day percent for single heat on date')
+
+    setFurnaceChargeKg(400)
+    assert(getFurnaceChargeKg() === 400, 'updates furnace charge kg in settings')
 
     console.log('\n[Referential integrity]')
     let deletePartError = null
@@ -164,6 +220,11 @@ function runTests() {
     assert(deletePartError !== null, 'blocks deleting part used in production/rejections')
 
     deleteRejection(rejection.id)
+    for (const entry of listProductionEntries({ from: '2099-03-01', to: '2099-03-31' })) {
+      if (entry.partId === part.id) {
+        deleteProductionEntry(entry.id)
+      }
+    }
     deleteProductionEntry(production.id)
     deletePart(part.id)
     assert(!listParts().some((item) => item.id === part.id), 'deletes part after unlinking records')
@@ -173,7 +234,14 @@ function runTests() {
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
       .all()
       .map((row) => row.name)
-    for (const table of ['parts', 'production_entries', 'rejections', 'rejection_types', 'schema_migrations']) {
+    for (const table of [
+      'parts',
+      'production_entries',
+      'rejections',
+      'rejection_types',
+      'schema_migrations',
+      'app_settings',
+    ]) {
       assert(tables.includes(table), `table exists: ${table}`)
     }
 
