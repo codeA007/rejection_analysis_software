@@ -8,6 +8,7 @@ import {
   createProductionEntry,
   deleteProductionEntry,
   listProductionEntries,
+  updateProductionEntry,
 } from '../database/production-queries.js'
 import {
   createRejection,
@@ -119,10 +120,18 @@ async function handleApiRequest(req, res) {
       }
     }
 
-    const productionDeleteMatch = pathname.match(/^\/api\/production\/(\d+)$/)
-    if (productionDeleteMatch && req.method === 'DELETE') {
-      sendJson(res, 200, deleteProductionEntry(Number(productionDeleteMatch[1])))
-      return
+    const productionIdMatch = pathname.match(/^\/api\/production\/(\d+)$/)
+    if (productionIdMatch) {
+      const productionId = Number(productionIdMatch[1])
+      if (req.method === 'DELETE') {
+        sendJson(res, 200, deleteProductionEntry(productionId))
+        return
+      }
+      if (req.method === 'PATCH') {
+        const body = await readJsonBody(req)
+        sendJson(res, 200, updateProductionEntry(productionId, body))
+        return
+      }
     }
 
     if (pathname === '/api/rejections') {

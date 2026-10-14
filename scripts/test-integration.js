@@ -9,6 +9,7 @@ import {
   createProductionEntry,
   deleteProductionEntry,
   listProductionEntries,
+  updateProductionEntry,
 } from '../database/production-queries.js'
 import {
   createRejection,
@@ -169,13 +170,13 @@ function runTests() {
     console.log('\n[Yield]')
     assert(getFurnaceChargeKg() === 350, 'default furnace charge is 350 kg')
 
-    createProductionEntry({
+    const yldEntryOne = createProductionEntry({
       partName: unique,
       quantity: 10,
       heatNumber: 'YLD-01',
       productionDate: '2099-03-01',
     })
-    createProductionEntry({
+    const yldEntryTwo = createProductionEntry({
       partName: unique,
       quantity: 5,
       heatNumber: 'YLD-01',
@@ -203,6 +204,28 @@ function runTests() {
     assert(yieldDayOne?.yieldPercent === 55.71, 'yield day percent uses heats on that date')
     assert(yieldDayOne?.heats.length === 1, 'yield day lists one heat for same heat on date')
     assert(yieldDayOne?.heats[0]?.entryCount === 2, 'yield heat child counts entries on date')
+    assert(yieldDayOne?.heats[0]?.totalQuantity === 15, 'yield heat child sums quantity on date')
+    assert(yieldDayOne?.heats[0]?.entries?.length === 2, 'yield heat child lists production entries')
+
+    updateProductionEntry(yldEntryOne.id, { quantity: 20 })
+    const yieldAfterQty = getHeatYieldReport({ from: '2099-03-01', to: '2099-03-31' })
+    const dayAfterQty = yieldAfterQty.days.find((row) => row.productionDate === '2099-03-01')
+    assert(dayAfterQty?.pouredKg === 325, 'yield recalculates after production quantity update')
+    assert(dayAfterQty?.heats[0]?.totalQuantity === 25, 'yield heat total quantity updates after edit')
+
+    updateProductionEntry(yldEntryOne.id, { heatNumber: 'YLD-01A' })
+    updateProductionEntry(yldEntryTwo.id, { heatNumber: 'YLD-01A' })
+    const yieldAfterHeat = getHeatYieldReport({ from: '2099-03-01', to: '2099-03-31' })
+    const dayAfterHeat = yieldAfterHeat.days.find((row) => row.productionDate === '2099-03-01')
+    assert(dayAfterHeat?.heats[0]?.heatNumber === 'YLD-01A', 'yield heat row reflects renamed heat number')
+    assert(
+      yieldAfterHeat.heats.some((row) => row.heatNumber === 'YLD-01A'),
+      'yield period heat list includes renamed heat',
+    )
+    assert(
+      !yieldAfterHeat.heats.some((row) => row.heatNumber === 'YLD-01'),
+      'yield period heat list drops old heat name after rename',
+    )
 
     const yieldDayThree = yieldReport.days.find((row) => row.productionDate === '2099-03-03')
     assert(yieldDayThree?.yieldPercent === 37.14, 'yield day percent for single heat on date')

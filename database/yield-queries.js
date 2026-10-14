@@ -28,13 +28,18 @@ function compareHeatNumbers(a, b) {
 function toHeatYieldRow(group, chargeKg) {
   const pouredKg = roundRate(group.pouredKg)
   const yieldPercent = chargeKg > 0 ? roundRate((pouredKg / chargeKg) * 100) : 0
-  return {
+  const row = {
     heatNumber: group.heatNumber,
     entryCount: group.entryCount,
     pouredKg,
     metalCharged: chargeKg,
     yieldPercent,
   }
+  if (group.entries) {
+    row.entries = group.entries
+    row.totalQuantity = group.totalQuantity ?? 0
+  }
+  return row
 }
 
 export function getHeatYieldReport({ from, to }) {
@@ -87,11 +92,20 @@ export function getHeatYieldReport({ from, to }) {
           heatNumber: entry.heatNumber.trim(),
           pouredKg: 0,
           entryCount: 0,
+          totalQuantity: 0,
+          entries: [],
         }
         dayMap.set(key, dayHeat)
       }
 
       dayHeat.entryCount += 1
+      dayHeat.totalQuantity += entry.quantity
+      dayHeat.entries.push({
+        id: entry.id,
+        partName: entry.partName,
+        quantity: entry.quantity,
+        pouredWeight: entry.pouredWeight,
+      })
       if (entry.pouredWeight !== null && entry.pouredWeight !== undefined) {
         dayHeat.pouredKg += entry.pouredWeight
       }

@@ -130,6 +130,56 @@ export function partHasProductionInMonth(partId, isoDate) {
   return getPartProductionQuantityInMonth(partId, isoDate) > 0
 }
 
+export function getProductionEntryById(id) {
+  const db = getDb()
+  const row = db.prepare(`${SELECT_PRODUCTION} WHERE pe.id = ?`).get(id)
+  if (!row) {
+    return null
+  }
+  return mapProductionRow(row, db)
+}
+
+export function updateProductionEntry(id, { quantity, heatNumber } = {}) {
+  const hasQuantity = quantity !== undefined && quantity !== null
+  const hasHeatNumber = heatNumber !== undefined
+
+  if (!hasQuantity && !hasHeatNumber) {
+    throw new Error('At least one field (quantity or heatNumber) is required.')
+  }
+
+  const db = getDb()
+  const existing = getProductionEntryById(id)
+  if (!existing) {
+    throw new Error('Production entry not found.')
+  }
+
+  const updates = []
+  const params = []
+
+  if (hasQuantity) {
+    const qty = Number(quantity)
+    if (!Number.isFinite(qty) || qty <= 0) {
+      throw new Error('Quantity must be greater than zero.')
+    }
+    updates.push('quantity = ?')
+    params.push(qty)
+  }
+
+  if (hasHeatNumber) {
+    const heat = heatNumber?.trim()
+    if (!heat) {
+      throw new Error('Heat number is required.')
+    }
+    updates.push('heat_number = ?')
+    params.push(heat)
+  }
+
+  params.push(id)
+  db.prepare(`UPDATE production_entries SET ${updates.join(', ')} WHERE id = ?`).run(...params)
+
+  return getProductionEntryById(id)
+}
+
 export function deleteProductionEntry(id) {
   const db = getDb()
   const result = db.prepare('DELETE FROM production_entries WHERE id = ?').run(id)

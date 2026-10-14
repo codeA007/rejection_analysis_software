@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Bar, Doughnut, Line } from 'react-chartjs-2'
 import { fetchMonthlyAnalysis } from '../../../api/analysis'
@@ -53,6 +53,15 @@ export default function MonthlyPage() {
       .then(setRejectionTypes)
       .catch(() => setRejectionTypes([]))
   }, [])
+
+  const reloadProductionAndYield = useCallback(async () => {
+    const [productionData, yieldData] = await Promise.all([
+      fetchProductionEntries({ from: dateFrom, to: dateTo }),
+      fetchHeatYieldReport({ from: dateFrom, to: dateTo }),
+    ])
+    setProductionEntries(productionData)
+    setYieldReport(yieldData)
+  }, [dateFrom, dateTo])
 
   useEffect(() => {
     if (!dateFrom || !dateTo) return
@@ -383,6 +392,7 @@ export default function MonthlyPage() {
                 <YieldByDateTable
                   days={yieldDays}
                   emptyTitle="No production in selected range"
+                  onProductionUpdated={reloadProductionAndYield}
                 />
               </div>
             </div>

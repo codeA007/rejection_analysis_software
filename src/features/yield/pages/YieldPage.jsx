@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { fetchHeatYieldReport } from '../../../api/yield'
 import StatCard from '../../../components/ui/StatCard'
@@ -37,14 +37,20 @@ export default function YieldPage() {
   const monthRange = getMonthBounds(monthKeyToFirstDay(yieldMonth))
   const monthLabel = formatDisplayMonth(yieldMonth)
 
+  const reloadReport = useCallback(async () => {
+    setError('')
+    const data = await fetchHeatYieldReport({ from: monthRange.start, to: monthRange.end })
+    setReport(data)
+    return data
+  }, [monthRange.start, monthRange.end])
+
   useEffect(() => {
     setLoading(true)
     setError('')
-    fetchHeatYieldReport({ from: monthRange.start, to: monthRange.end })
-      .then(setReport)
+    reloadReport()
       .catch((err) => setError(err.message || 'Unable to load yield report.'))
       .finally(() => setLoading(false))
-  }, [monthRange.start, monthRange.end])
+  }, [reloadReport])
 
   const chargeKg = report?.chargeKg ?? 350
   const summary = report?.summary
@@ -131,6 +137,7 @@ export default function YieldPage() {
             days={days}
             loading={loading}
             emptyTitle={`No production for ${monthLabel}`}
+            onProductionUpdated={reloadReport}
           />
         </div>
       </div>
