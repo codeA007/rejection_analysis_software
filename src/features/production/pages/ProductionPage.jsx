@@ -34,6 +34,8 @@ import { useSubmitGuard } from '../../../hooks/useSubmitGuard'
 import { computeHeatYield, sumPouredKgForHeat } from '../../../utils/heatYieldUtils'
 import { parseQuantityExpression } from '../../../utils/parseQuantityExpression'
 
+const RECENT_ENTRY_HIGHLIGHT_MS = 8000
+
 export default function ProductionPage() {
   const [parts, setParts] = useState([])
   const [entries, setEntries] = useState([])
@@ -46,12 +48,45 @@ export default function ProductionPage() {
   const [message, setMessage] = useState('')
   const [hasLoaded, setHasLoaded] = useState(false)
   const [furnaceChargeKg, setFurnaceChargeKg] = useState(350)
+  const [recentEntryIds, setRecentEntryIds] = useState(() => new Set())
 
   const formRef = useRef(null)
+  const recentHighlightTimersRef = useRef(new Map())
   const partInputRef = useRef(null)
   const quantityInputRef = useRef(null)
   const dateInputRef = useRef(null)
   const { runGuarded } = useSubmitGuard()
+
+  useEffect(() => {
+    const timers = recentHighlightTimersRef.current
+    return () => {
+      for (const timer of timers.values()) {
+        window.clearTimeout(timer)
+      }
+      timers.clear()
+    }
+  }, [])
+
+  function markEntryAsRecent(id) {
+    setRecentEntryIds((current) => new Set(current).add(id))
+
+    const timers = recentHighlightTimersRef.current
+    const existing = timers.get(id)
+    if (existing) {
+      window.clearTimeout(existing)
+    }
+
+    const timer = window.setTimeout(() => {
+      setRecentEntryIds((current) => {
+        const next = new Set(current)
+        next.delete(id)
+        return next
+      })
+      timers.delete(id)
+    }, RECENT_ENTRY_HIGHLIGHT_MS)
+
+    timers.set(id, timer)
+  }
 
   async function loadData() {
     const [partsData, entriesData] = await Promise.all([fetchParts(), fetchProductionEntries()])
@@ -223,12 +258,15 @@ export default function ProductionPage() {
         return
       }
 
-      await createProductionEntry({
+      const created = await createProductionEntry({
         partName,
         quantity: parsedQuantity,
         heatNumber,
         productionDate,
       })
+      if (created?.id) {
+        markEntryAsRecent(created.id)
+      }
       setPartName('')
       setQuantity('')
       setMessage('Production entry saved.')
@@ -415,8 +453,19 @@ export default function ProductionPage() {
                   </td>
                 </tr>
               ) : (
-                monthEntries.map((entry) => (
-                  <tr key={entry.id} className={tableRowClassName}>
+                monthEntries.map((entry) => {
+                  const isRecentlyAdded = recentEntryIds.has(entry.id)
+                  return (
+                  <tr
+                    key={entry.id}
+                    className={[
+                      tableRowClassName,
+                      isRecentlyAdded &&
+                        'bg-[#2d6a6a]/[0.07] ring-1 ring-inset ring-[#2d6a6a]/15 transition-colors duration-700',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                  >
                     <td className={`${tdClassName} whitespace-nowrap text-neutral-600`}>
                       {formatDisplayDate(entry.productionDate)}
                     </td>
@@ -442,7 +491,8 @@ export default function ProductionPage() {
                       </button>
                     </td>
                   </tr>
-                ))
+                  )
+                })
               )}
             </tbody>
           </table>

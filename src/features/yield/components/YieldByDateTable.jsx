@@ -1,5 +1,5 @@
-import { Fragment, useEffect, useState } from 'react'
-import { updateProductionEntry } from '../../../api/production'
+import { Fragment, useEffect, useMemo, useState } from 'react'
+import { deleteProductionEntry, updateProductionEntry } from '../../../api/production'
 import {
   buttonPrimaryClassName,
   buttonSecondaryClassName,
@@ -32,6 +32,10 @@ function heatRowKey(productionDate, heatNumber) {
   return `${productionDate}|${normalizeHeatKey(heatNumber)}`
 }
 
+function heatExpandKey(productionDate, heat) {
+  return `${productionDate}|${heatStableKey(heat)}`
+}
+
 function heatStableKey(heat) {
   const entries = heat.entries ?? []
   if (entries.length) {
@@ -39,6 +43,9 @@ function heatStableKey(heat) {
   }
   return normalizeHeatKey(heat.heatNumber)
 }
+
+const iconButtonClassName =
+  'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors disabled:cursor-not-allowed disabled:opacity-50'
 
 function ChevronIcon({ expanded }) {
   return (
@@ -51,6 +58,38 @@ function ChevronIcon({ expanded }) {
       aria-hidden="true"
     >
       <path strokeLinecap="round" strokeLinejoin="round" d="M9 6l6 6-6 6" />
+    </svg>
+  )
+}
+
+function TrashIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+      />
+    </svg>
+  )
+}
+
+function PencilIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+      />
+    </svg>
+  )
+}
+
+function SaveIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
     </svg>
   )
 }
@@ -68,8 +107,14 @@ export default function YieldByDateTable({
   const [heatDraft, setHeatDraft] = useState('')
   const [savingHeatKey, setSavingHeatKey] = useState(null)
   const [savingEntryId, setSavingEntryId] = useState(null)
+  const [deletingEntryId, setDeletingEntryId] = useState(null)
   const [rowError, setRowError] = useState(null)
   const [quantityDrafts, setQuantityDrafts] = useState(() => ({}))
+
+  const periodKey = useMemo(
+    () => days.map((day) => day.productionDate).sort().join('\0'),
+    [days],
+  )
 
   useEffect(() => {
     setExpandedDates(new Set())
@@ -78,7 +123,7 @@ export default function YieldByDateTable({
     setHeatDraft('')
     setQuantityDrafts({})
     setRowError(null)
-  }, [days])
+  }, [periodKey])
 
   function toggleDateExpanded(productionDate) {
     setExpandedDates((current) => {
@@ -197,12 +242,43 @@ export default function YieldByDateTable({
     }
   }
 
-  function handleQuantityBlur(entry) {
+  function isEntryQuantityDirty(entry) {
+    const raw = getQuantityDraft(entry)
+    const parsed = parseQuantityExpression(raw)
+    const qty = parsed ?? Number(raw)
+    if (!Number.isFinite(qty)) {
+      return raw.trim() !== String(entry.quantity)
+    }
+    return qty !== entry.quantity
+  }
+
+  function normalizeQuantityDraft(entry) {
     const parsed = parseQuantityExpression(getQuantityDraft(entry))
     if (parsed != null) {
       setQuantityDraft(entry.id, String(parsed))
     }
-    void saveEntryQuantity(entry)
+  }
+
+  async function handleDeleteEntry(entry) {
+    if (!window.confirm(`Delete production entry for ${entry.partName}?`)) {
+      return
+    }
+
+    setDeletingEntryId(entry.id)
+    setRowError(null)
+    try {
+      await deleteProductionEntry(entry.id)
+      setQuantityDrafts((current) => {
+        const next = { ...current }
+        delete next[entry.id]
+        return next
+      })
+      await onProductionUpdated?.()
+    } catch (err) {
+      setRowError(err.message || 'Unable to delete production entry.')
+    } finally {
+      setDeletingEntryId(null)
+    }
   }
 
   return (
@@ -267,10 +343,11 @@ export default function YieldByDateTable({
                   </tr>
                   {isDateExpanded
                     ? day.heats.map((heat) => {
-                        const heatKey = heatRowKey(day.productionDate, heat.heatNumber)
-                        const isHeatExpanded = expandedHeats.has(heatKey)
-                        const isEditingHeat = editingHeatKey === heatKey
-                        const isSavingHeat = savingHeatKey === heatKey
+                        const heatEditKey = heatRowKey(day.productionDate, heat.heatNumber)
+                        const heatExpandId = heatExpandKey(day.productionDate, heat)
+                        const isHeatExpanded = expandedHeats.has(heatExpandId)
+                        const isEditingHeat = editingHeatKey === heatEditKey
+                        const isSavingHeat = savingHeatKey === heatEditKey
                         const entries = heat.entries ?? []
 
                         return (
@@ -280,7 +357,7 @@ export default function YieldByDateTable({
                                 {entries.length > 0 ? (
                                   <button
                                     type="button"
-                                    onClick={() => toggleHeatExpanded(heatKey)}
+                                    onClick={() => toggleHeatExpanded(heatExpandId)}
                                     className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-neutral-100"
                                     aria-expanded={isHeatExpanded}
                                     aria-label={`${isHeatExpanded ? 'Collapse' : 'Expand'} entries for heat ${heat.heatNumber}`}
@@ -308,9 +385,16 @@ export default function YieldByDateTable({
                                         type="button"
                                         onClick={() => saveHeatNumber(day.productionDate, heat)}
                                         disabled={isSavingHeat}
-                                        className={`${buttonPrimaryClassName} !px-2.5 !py-1 !text-xs`}
+                                        className={`${buttonPrimaryClassName} inline-flex !px-2.5 !py-1 !text-xs items-center gap-1`}
                                       >
-                                        {isSavingHeat ? 'Saving…' : 'Save'}
+                                        {isSavingHeat ? (
+                                          'Saving…'
+                                        ) : (
+                                          <>
+                                            <SaveIcon />
+                                            Save
+                                          </>
+                                        )}
                                       </button>
                                       <button
                                         type="button"
@@ -330,9 +414,10 @@ export default function YieldByDateTable({
                                         <button
                                           type="button"
                                           onClick={() => startHeatEdit(day.productionDate, heat)}
-                                          className="text-xs font-semibold text-[#2d6a6a] hover:text-[#255959]"
+                                          className={`${iconButtonClassName} text-[#2d6a6a] hover:bg-[#2d6a6a]/10`}
+                                          aria-label={`Edit heat ${heat.heatNumber}`}
                                         >
-                                          Edit
+                                          <PencilIcon />
                                         </button>
                                       ) : null}
                                     </>
@@ -359,12 +444,26 @@ export default function YieldByDateTable({
                             {isHeatExpanded
                               ? entries.map((entry) => {
                                   const isSavingQty = savingEntryId === entry.id
+                                  const isDeleting = deletingEntryId === entry.id
+                                  const isQtyDirty = isEntryQuantityDirty(entry)
                                   return (
                                     <tr
                                       key={entry.id}
                                       className="bg-neutral-50/50"
                                     >
-                                      <td className={tdClassName} />
+                                      <td className={tdClassName}>
+                                        {onProductionUpdated ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleDeleteEntry(entry)}
+                                            disabled={isDeleting || isSavingQty}
+                                            className={`${iconButtonClassName} text-red-600 hover:bg-red-50`}
+                                            aria-label={`Delete ${entry.partName}`}
+                                          >
+                                            <TrashIcon />
+                                          </button>
+                                        ) : null}
+                                      </td>
                                       <td className={`${tdClassName} pl-10 text-sm text-neutral-700`}>
                                         <span className="text-xs font-medium uppercase tracking-wide text-neutral-400">
                                           Part
@@ -373,25 +472,39 @@ export default function YieldByDateTable({
                                       </td>
                                       <td className={tableNumericClassName}>
                                         {onProductionUpdated ? (
-                                          <input
-                                            type="text"
-                                            inputMode="decimal"
-                                            autoComplete="off"
-                                            value={getQuantityDraft(entry)}
-                                            onChange={(event) =>
-                                              setQuantityDraft(entry.id, event.target.value)
-                                            }
-                                            onBlur={() => handleQuantityBlur(entry)}
-                                            onKeyDown={(event) => {
-                                              if (event.key === 'Enter') {
-                                                event.preventDefault()
-                                                event.target.blur()
+                                          <div className="flex items-center justify-end gap-1">
+                                            <input
+                                              type="text"
+                                              inputMode="decimal"
+                                              autoComplete="off"
+                                              value={getQuantityDraft(entry)}
+                                              onChange={(event) =>
+                                                setQuantityDraft(entry.id, event.target.value)
                                               }
-                                            }}
-                                            disabled={isSavingQty}
-                                            className={`${compactInputClassName} w-20 text-right tabular-nums`}
-                                            aria-label={`Quantity for ${entry.partName}`}
-                                          />
+                                              onBlur={() => normalizeQuantityDraft(entry)}
+                                              onKeyDown={(event) => {
+                                                if (event.key === 'Enter') {
+                                                  event.preventDefault()
+                                                  void saveEntryQuantity(entry)
+                                                }
+                                              }}
+                                              disabled={isSavingQty || isDeleting}
+                                              className={`${compactInputClassName} w-20 text-right tabular-nums`}
+                                              aria-label={`Quantity for ${entry.partName}`}
+                                            />
+                                            <button
+                                              type="button"
+                                              onClick={() => saveEntryQuantity(entry)}
+                                              disabled={
+                                                isSavingQty || isDeleting || !isQtyDirty
+                                              }
+                                              className={`${iconButtonClassName} text-[#2d6a6a] hover:bg-[#2d6a6a]/10`}
+                                              aria-label={`Save quantity for ${entry.partName}`}
+                                              title="Save"
+                                            >
+                                              <SaveIcon />
+                                            </button>
+                                          </div>
                                         ) : (
                                           entry.quantity
                                         )}
