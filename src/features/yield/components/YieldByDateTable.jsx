@@ -15,6 +15,7 @@ import { normalizeHeatKey } from '../../../utils/heatYieldUtils'
 import { parseQuantityExpression } from '../../../utils/parseQuantityExpression'
 
 const COLUMN_COUNT = 7
+const HEAT_DRAG_MIME = 'application/x-yield-heat-move'
 
 const compactInputClassName = `${inputClassName} !py-1.5 !text-sm`
 
@@ -33,7 +34,7 @@ function heatRowKey(productionDate, heatNumber) {
 }
 
 function heatExpandKey(productionDate, heat) {
-  return `${productionDate}|${heatStableKey(heat)}`
+  return heatRowKey(productionDate, heat.heatNumber)
 }
 
 function heatStableKey(heat) {
@@ -42,6 +43,20 @@ function heatStableKey(heat) {
     return entries.map((entry) => entry.id).join('-')
   }
   return normalizeHeatKey(heat.heatNumber)
+}
+
+function collectDayEntryIds(day) {
+  const ids = []
+  for (const heat of day.heats ?? []) {
+    for (const entry of heat.entries ?? []) {
+      ids.push(entry.id)
+    }
+  }
+  return ids
+}
+
+function collectHeatEntryIds(heat) {
+  return (heat.entries ?? []).map((entry) => entry.id)
 }
 
 const iconButtonClassName =
@@ -94,6 +109,19 @@ function SaveIcon() {
   )
 }
 
+function GripIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <circle cx="9" cy="6" r="1.25" />
+      <circle cx="15" cy="6" r="1.25" />
+      <circle cx="9" cy="12" r="1.25" />
+      <circle cx="15" cy="12" r="1.25" />
+      <circle cx="9" cy="18" r="1.25" />
+      <circle cx="15" cy="18" r="1.25" />
+    </svg>
+  )
+}
+
 export default function YieldByDateTable({
   days = [],
   loading = false,
@@ -108,6 +136,12 @@ export default function YieldByDateTable({
   const [savingHeatKey, setSavingHeatKey] = useState(null)
   const [savingEntryId, setSavingEntryId] = useState(null)
   const [deletingEntryId, setDeletingEntryId] = useState(null)
+  const [editingDateKey, setEditingDateKey] = useState(null)
+  const [dateDraft, setDateDraft] = useState('')
+  const [savingDateKey, setSavingDateKey] = useState(null)
+  const [dragOverDate, setDragOverDate] = useState(null)
+  const [draggingHeatKey, setDraggingHeatKey] = useState(null)
+  const [movingHeatKey, setMovingHeatKey] = useState(null)
   const [rowError, setRowError] = useState(null)
   const [quantityDrafts, setQuantityDrafts] = useState(() => ({}))
 
@@ -117,13 +151,38 @@ export default function YieldByDateTable({
   )
 
   useEffect(() => {
-    setExpandedDates(new Set())
-    setExpandedHeats(new Set())
     setEditingHeatKey(null)
     setHeatDraft('')
+    setEditingDateKey(null)
+    setDateDraft('')
     setQuantityDrafts({})
     setRowError(null)
   }, [periodKey])
+
+  useEffect(() => {
+    const validDates = new Set(days.map((day) => day.productionDate))
+    const validHeatKeys = new Set()
+    for (const day of days) {
+      for (const heat of day.heats ?? []) {
+        validHeatKeys.add(heatExpandKey(day.productionDate, heat))
+      }
+    }
+
+    setExpandedDates((current) => {
+      const next = new Set()
+      for (const date of current) {
+        if (validDates.has(date)) next.add(date)
+      }
+      return next.size === current.size ? current : next
+    })
+    setExpandedHeats((current) => {
+      const next = new Set()
+      for (const key of current) {
+        if (validHeatKeys.has(key)) next.add(key)
+      }
+      return next.size === current.size ? current : next
+    })
+  }, [days])
 
   function toggleDateExpanded(productionDate) {
     setExpandedDates((current) => {
@@ -162,6 +221,184 @@ export default function YieldByDateTable({
     setRowError(null)
   }
 
+  function startDateEdit(day) {
+    setEditingDateKey(day.productionDate)
+    setDateDraft(day.productionDate)
+    setRowError(null)
+  }
+
+  function cancelDateEdit() {
+    setEditingDateKey(null)
+    setDateDraft('')
+    setRowError(null)
+  }
+
+  function migrateExpansionAfterDateChange(oldDate, newDate) {
+    setExpandedDates((current) => {
+      const next = new Set(current)
+      if (next.has(oldDate)) {
+        next.delete(oldDate)
+        next.add(newDate)
+      }
+      return next
+    })
+    setExpandedHeats((current) => {
+      const next = new Set()
+      const oldPrefix = `${oldDate}|`
+      const newPrefix = `${newDate}|`
+      for (const key of current) {
+        if (key.startsWith(oldPrefix)) {
+          next.add(newPrefix + key.slice(oldPrefix.length))
+        } else {
+          next.add(key)
+        }
+      }
+      return next
+    })
+  }
+
+  function migrateExpansionAfterHeatMove(sourceDate, targetDate, heatNumber) {
+    const oldHeatKey = heatRowKey(sourceDate, heatNumber)
+    const newHeatKey = heatRowKey(targetDate, heatNumber)
+    setExpandedHeats((current) => {
+      const next = new Set(current)
+      if (next.has(oldHeatKey)) {
+        next.delete(oldHeatKey)
+        next.add(newHeatKey)
+      }
+      return next
+    })
+    setExpandedDates((current) => {
+      const next = new Set(current)
+      next.add(targetDate)
+      return next
+    })
+  }
+
+  async function moveHeatToDate({ sourceDate, heatNumber, entryIds }, targetDate) {
+    if (!entryIds?.length) {
+      setRowError('No production entries to move.')
+      return
+    }
+    if (sourceDate === targetDate) {
+      return
+    }
+
+    const moveKey = heatRowKey(sourceDate, heatNumber)
+    setMovingHeatKey(moveKey)
+    setRowError(null)
+    try {
+      await Promise.all(
+        entryIds.map((id) => updateProductionEntry(id, { productionDate: targetDate })),
+      )
+      migrateExpansionAfterHeatMove(sourceDate, targetDate, heatNumber)
+      await onProductionUpdated?.()
+    } catch (err) {
+      setRowError(err.message || 'Unable to move heat to another date.')
+    } finally {
+      setMovingHeatKey(null)
+      setDragOverDate(null)
+      setDraggingHeatKey(null)
+    }
+  }
+
+  function handleHeatDragStart(event, productionDate, heat) {
+    const entryIds = collectHeatEntryIds(heat)
+    if (!entryIds.length) {
+      event.preventDefault()
+      return
+    }
+
+    event.dataTransfer.setData(
+      HEAT_DRAG_MIME,
+      JSON.stringify({
+        sourceDate: productionDate,
+        heatNumber: heat.heatNumber,
+        entryIds,
+      }),
+    )
+    event.dataTransfer.effectAllowed = 'move'
+    setDraggingHeatKey(heatExpandKey(productionDate, heat))
+  }
+
+  function handleHeatDragEnd() {
+    setDraggingHeatKey(null)
+    setDragOverDate(null)
+  }
+
+  function handleDateDragOver(event, targetDate) {
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    setDragOverDate(targetDate)
+  }
+
+  function handleDateDragLeave(event, targetDate) {
+    if (event.currentTarget.contains(event.relatedTarget)) {
+      return
+    }
+    setDragOverDate((current) => (current === targetDate ? null : current))
+  }
+
+  function handleDateDrop(event, targetDate) {
+    event.preventDefault()
+    setDragOverDate(null)
+
+    const raw = event.dataTransfer.getData(HEAT_DRAG_MIME)
+    if (!raw) {
+      return
+    }
+
+    let payload
+    try {
+      payload = JSON.parse(raw)
+    } catch {
+      return
+    }
+
+    void moveHeatToDate(payload, targetDate)
+  }
+
+  const isInteractionLocked =
+    editingDateKey !== null ||
+    savingDateKey !== null ||
+    editingHeatKey !== null ||
+    savingHeatKey !== null ||
+    movingHeatKey !== null
+
+  async function saveProductionDate(day) {
+    const trimmed = dateDraft.trim()
+    if (!trimmed) {
+      setRowError('Production date is required.')
+      return
+    }
+    if (trimmed === day.productionDate) {
+      cancelDateEdit()
+      return
+    }
+
+    const entryIds = collectDayEntryIds(day)
+    if (!entryIds.length) {
+      setRowError('No production entries to update.')
+      return
+    }
+
+    setSavingDateKey(day.productionDate)
+    setRowError(null)
+    try {
+      await Promise.all(
+        entryIds.map((id) => updateProductionEntry(id, { productionDate: trimmed })),
+      )
+      migrateExpansionAfterDateChange(day.productionDate, trimmed)
+      setEditingDateKey(null)
+      setDateDraft('')
+      await onProductionUpdated?.()
+    } catch (err) {
+      setRowError(err.message || 'Unable to update production date.')
+    } finally {
+      setSavingDateKey(null)
+    }
+  }
+
   async function saveHeatNumber(productionDate, heat) {
     const key = heatRowKey(productionDate, heat.heatNumber)
     const trimmed = heatDraft.trim()
@@ -180,6 +417,9 @@ export default function YieldByDateTable({
       return
     }
 
+    const expandKeyBeforeSave = heatExpandKey(productionDate, heat)
+    const expandKeyAfterSave = heatRowKey(productionDate, trimmed)
+
     setSavingHeatKey(key)
     setRowError(null)
     try {
@@ -188,6 +428,16 @@ export default function YieldByDateTable({
       )
       setEditingHeatKey(null)
       setHeatDraft('')
+      if (expandKeyBeforeSave !== expandKeyAfterSave) {
+        setExpandedHeats((current) => {
+          const next = new Set(current)
+          if (next.has(expandKeyBeforeSave)) {
+            next.delete(expandKeyBeforeSave)
+            next.add(expandKeyAfterSave)
+          }
+          return next
+        })
+      }
       await onProductionUpdated?.()
     } catch (err) {
       setRowError(err.message || 'Unable to update heat number.')
@@ -286,7 +536,7 @@ export default function YieldByDateTable({
       <table className={tableClassName}>
         <thead>
           <tr>
-            <th className={`${thClassName} w-10`} aria-label="Expand" />
+            <th className={`${thClassName} w-16`} aria-label="Expand and drag" />
             <th className={thClassName}>Date</th>
             <th className={`${thClassName} text-right`} title="Heat count on date; total qty per heat when expanded">
               Heats / Qty
@@ -314,9 +564,35 @@ export default function YieldByDateTable({
           ) : (
             days.map((day) => {
               const isDateExpanded = expandedDates.has(day.productionDate)
+              const isEditingDate = editingDateKey === day.productionDate
+              const isSavingDate = savingDateKey === day.productionDate
+              const isDropTarget = dragOverDate === day.productionDate
               return (
                 <Fragment key={day.productionDate}>
-                  <tr className={tableRowClassName}>
+                  <tr
+                    className={[
+                      tableRowClassName,
+                      isDropTarget && 'bg-[#2d6a6a]/5 ring-2 ring-inset ring-[#2d6a6a]/30',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    data-production-date={day.productionDate}
+                    onDragOver={
+                      onProductionUpdated && !isInteractionLocked
+                        ? (event) => handleDateDragOver(event, day.productionDate)
+                        : undefined
+                    }
+                    onDragLeave={
+                      onProductionUpdated
+                        ? (event) => handleDateDragLeave(event, day.productionDate)
+                        : undefined
+                    }
+                    onDrop={
+                      onProductionUpdated && !isInteractionLocked
+                        ? (event) => handleDateDrop(event, day.productionDate)
+                        : undefined
+                    }
+                  >
                     <td className={tdClassName}>
                       <button
                         type="button"
@@ -329,7 +605,58 @@ export default function YieldByDateTable({
                       </button>
                     </td>
                     <td className={`${tdClassName} whitespace-nowrap font-medium text-neutral-900`}>
-                      {formatDisplayDate(day.productionDate)}
+                      {isEditingDate ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <input
+                            type="date"
+                            value={dateDraft}
+                            onChange={(event) => setDateDraft(event.target.value)}
+                            className={compactInputClassName}
+                            aria-label="Production date"
+                            disabled={isSavingDate}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => saveProductionDate(day)}
+                            disabled={isSavingDate}
+                            className={`${buttonPrimaryClassName} inline-flex !px-2.5 !py-1 !text-xs items-center gap-1`}
+                          >
+                            {isSavingDate ? (
+                              'Saving…'
+                            ) : (
+                              <>
+                                <SaveIcon />
+                                Save
+                              </>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={cancelDateEdit}
+                            disabled={isSavingDate}
+                            className={`${buttonSecondaryClassName} !px-2.5 !py-1 !text-xs`}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <span>{formatDisplayDate(day.productionDate)}</span>
+                          {onProductionUpdated ? (
+                            <button
+                              type="button"
+                              onClick={() => startDateEdit(day)}
+                              className={`${iconButtonClassName} text-[#2d6a6a] hover:bg-[#2d6a6a]/10`}
+                              aria-label={`Edit production date ${formatDisplayDate(day.productionDate)}`}
+                            >
+                              <PencilIcon />
+                            </button>
+                          ) : null}
+                        </div>
+                      )}
+                      {rowError && (isEditingDate || isSavingDate) ? (
+                        <p className="mt-1 text-xs text-red-600">{rowError}</p>
+                      ) : null}
                     </td>
                     <td className={tableNumericClassName}>{day.heatCount}</td>
                     <td className={`${tableNumericClassName} font-medium text-[#2d6a6a]`}>
@@ -348,23 +675,57 @@ export default function YieldByDateTable({
                         const isHeatExpanded = expandedHeats.has(heatExpandId)
                         const isEditingHeat = editingHeatKey === heatEditKey
                         const isSavingHeat = savingHeatKey === heatEditKey
+                        const isMovingHeat = movingHeatKey === heatEditKey
+                        const isDraggingHeat = draggingHeatKey === heatExpandId
                         const entries = heat.entries ?? []
+                        const canDragHeat =
+                          onProductionUpdated &&
+                          entries.length > 0 &&
+                          !isInteractionLocked &&
+                          !isEditingHeat &&
+                          !isSavingHeat &&
+                          !isMovingHeat
 
                         return (
                           <Fragment key={`${day.productionDate}-${heatStableKey(heat)}`}>
-                            <tr className="bg-neutral-50/80">
+                            <tr
+                              className={[
+                                'bg-neutral-50/80',
+                                (isDraggingHeat || isMovingHeat) && 'opacity-50',
+                              ]
+                                .filter(Boolean)
+                                .join(' ')}
+                            >
                               <td className={tdClassName}>
-                                {entries.length > 0 ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => toggleHeatExpanded(heatExpandId)}
-                                    className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-neutral-100"
-                                    aria-expanded={isHeatExpanded}
-                                    aria-label={`${isHeatExpanded ? 'Collapse' : 'Expand'} entries for heat ${heat.heatNumber}`}
-                                  >
-                                    <ChevronIcon expanded={isHeatExpanded} />
-                                  </button>
-                                ) : null}
+                                <div className="flex items-center">
+                                  {canDragHeat ? (
+                                    <span
+                                      draggable
+                                      onDragStart={(event) =>
+                                        handleHeatDragStart(event, day.productionDate, heat)
+                                      }
+                                      onDragEnd={handleHeatDragEnd}
+                                      className={`${iconButtonClassName} cursor-grab text-neutral-400 hover:bg-neutral-100 active:cursor-grabbing`}
+                                      title="Drag to another date"
+                                      aria-grabbed={isDraggingHeat}
+                                      role="button"
+                                      tabIndex={0}
+                                    >
+                                      <GripIcon />
+                                    </span>
+                                  ) : null}
+                                  {entries.length > 0 ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleHeatExpanded(heatExpandId)}
+                                      className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-neutral-100"
+                                      aria-expanded={isHeatExpanded}
+                                      aria-label={`${isHeatExpanded ? 'Collapse' : 'Expand'} entries for heat ${heat.heatNumber}`}
+                                    >
+                                      <ChevronIcon expanded={isHeatExpanded} />
+                                    </button>
+                                  ) : null}
+                                </div>
                               </td>
                               <td className={tdClassName}>
                                 <div className="flex flex-wrap items-center gap-2 pl-4">
@@ -529,7 +890,12 @@ export default function YieldByDateTable({
           )}
         </tbody>
       </table>
-      {rowError && !editingHeatKey && !savingHeatKey ? (
+      {rowError &&
+      !editingHeatKey &&
+      !savingHeatKey &&
+      !editingDateKey &&
+      !savingDateKey &&
+      !movingHeatKey ? (
         <p className="mt-2 px-4 text-xs text-red-600">{rowError}</p>
       ) : null}
     </div>

@@ -139,12 +139,13 @@ export function getProductionEntryById(id) {
   return mapProductionRow(row, db)
 }
 
-export function updateProductionEntry(id, { quantity, heatNumber } = {}) {
+export function updateProductionEntry(id, { quantity, heatNumber, productionDate } = {}) {
   const hasQuantity = quantity !== undefined && quantity !== null
   const hasHeatNumber = heatNumber !== undefined
+  const hasProductionDate = productionDate !== undefined
 
-  if (!hasQuantity && !hasHeatNumber) {
-    throw new Error('At least one field (quantity or heatNumber) is required.')
+  if (!hasQuantity && !hasHeatNumber && !hasProductionDate) {
+    throw new Error('At least one field (quantity, heatNumber, or productionDate) is required.')
   }
 
   const db = getDb()
@@ -172,6 +173,15 @@ export function updateProductionEntry(id, { quantity, heatNumber } = {}) {
     }
     updates.push('heat_number = ?')
     params.push(heat)
+  }
+
+  if (hasProductionDate) {
+    const date = productionDate?.trim()
+    if (!date) {
+      throw new Error('Production date is required.')
+    }
+    updates.push('production_date = ?')
+    params.push(date)
   }
 
   params.push(id)

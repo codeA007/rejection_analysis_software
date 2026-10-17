@@ -182,7 +182,7 @@ function runTests() {
       heatNumber: 'YLD-01',
       productionDate: '2099-03-01',
     })
-    createProductionEntry({
+    const yldEntryThree = createProductionEntry({
       partName: unique,
       quantity: 10,
       heatNumber: 'YLD-02',
@@ -227,8 +227,30 @@ function runTests() {
       'yield period heat list drops old heat name after rename',
     )
 
+    updateProductionEntry(yldEntryOne.id, { productionDate: '2099-03-02' })
+    updateProductionEntry(yldEntryTwo.id, { productionDate: '2099-03-02' })
+    const yieldAfterDate = getHeatYieldReport({ from: '2099-03-01', to: '2099-03-31' })
+    assert(
+      !yieldAfterDate.days.some((row) => row.productionDate === '2099-03-01'),
+      'yield day moves when all entries change production date',
+    )
+    const movedDay = yieldAfterDate.days.find((row) => row.productionDate === '2099-03-02')
+    assert(movedDay?.entryCount === 2, 'yield groups entries on new production date')
+
     const yieldDayThree = yieldReport.days.find((row) => row.productionDate === '2099-03-03')
     assert(yieldDayThree?.yieldPercent === 37.14, 'yield day percent for single heat on date')
+
+    updateProductionEntry(yldEntryThree.id, { productionDate: '2099-03-02' })
+    const yieldAfterHeatMove = getHeatYieldReport({ from: '2099-03-01', to: '2099-03-31' })
+    const dayAfterHeatMove = yieldAfterHeatMove.days.find((row) => row.productionDate === '2099-03-02')
+    assert(
+      dayAfterHeatMove?.heats.some((row) => row.heatNumber === 'YLD-02'),
+      'yield day includes heat moved onto another date',
+    )
+    assert(
+      !yieldAfterHeatMove.days.some((row) => row.productionDate === '2099-03-03'),
+      'yield drops source date when last heat is moved away',
+    )
 
     setFurnaceChargeKg(400)
     assert(getFurnaceChargeKg() === 400, 'updates furnace charge kg in settings')
