@@ -78,6 +78,12 @@ const quickActions = [
     accent: 'from-sky-100/80 to-sky-50 text-sky-800',
   },
   {
+    to: '/electricity',
+    title: 'Electricity',
+    description: 'Track kWh per ton from heat count',
+    accent: 'from-yellow-100/80 to-yellow-50 text-yellow-900',
+  },
+  {
     to: '/parts',
     title: 'Manage Parts',
     description: 'Update catalog and weights',

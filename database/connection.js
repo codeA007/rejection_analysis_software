@@ -4,6 +4,7 @@ import path from 'node:path'
 import { DB_PATH, SCHEMA_PATH } from './paths.js'
 import { migrateSchemaV2 } from './migrations/v2-parts-columns.js'
 import { migrateSchemaV3 } from './migrations/v3-app-settings.js'
+import { migrateSchemaV4 } from './migrations/v4-electricity.js'
 
 let db
 
@@ -16,6 +17,7 @@ function openDatabase() {
   db.exec(schema)
   migrateSchemaV2(db)
   migrateSchemaV3(db)
+  migrateSchemaV4(db)
 }
 
 export function getDb() {
@@ -24,6 +26,7 @@ export function getDb() {
   } else {
     migrateSchemaV2(db)
     migrateSchemaV3(db)
+    migrateSchemaV4(db)
   }
   return db
 }

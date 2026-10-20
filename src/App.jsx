@@ -8,6 +8,7 @@ import ProductionPage from './features/production/pages/ProductionPage'
 import RejectionsPage from './features/rejections/pages/RejectionsPage'
 import MonthlyPage from './features/monthly/pages/MonthlyPage'
 import YieldPage from './features/yield/pages/YieldPage'
+import ElectricityPage from './features/electricity/pages/ElectricityPage'
 import SettingsPage from './features/settings/pages/SettingsPage'
 
 function App() {
@@ -26,6 +27,7 @@ function App() {
               <Route path="/production" element={<ProductionPage />} />
               <Route path="/rejections" element={<RejectionsPage />} />
               <Route path="/yield" element={<YieldPage />} />
+              <Route path="/electricity" element={<ElectricityPage />} />
               <Route path="/monthly" element={<MonthlyPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />

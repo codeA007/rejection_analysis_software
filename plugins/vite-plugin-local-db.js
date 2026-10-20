@@ -1,6 +1,20 @@
 import { getDb } from '../database/connection.js'
 import { getMonthlyAnalysis, getDashboardSummary } from '../database/analysis-queries.js'
-import { getFurnaceChargeKg, setFurnaceChargeKg } from '../database/app-settings-queries.js'
+import {
+  getElectricityMeterStartKwh,
+  getElectricitySettings,
+  getFurnaceChargeKg,
+  setFurnaceChargeKg,
+  updateElectricitySettings,
+} from '../database/app-settings-queries.js'
+import {
+  createElectricityReading,
+  deleteElectricityReading,
+  getElectricityBaseline,
+  getElectricitySummary,
+  listElectricityReadings,
+  updateElectricityReading,
+} from '../database/electricity-queries.js'
 import { getHeatYieldReport } from '../database/yield-queries.js'
 import { createPart, deletePart, listParts, updatePart } from '../database/part-queries.js'
 import { importParts, previewPartImport } from '../database/part-import-queries.js'
@@ -208,6 +222,49 @@ async function handleApiRequest(req, res) {
       if (req.method === 'PUT') {
         const body = await readJsonBody(req)
         sendJson(res, 200, setFurnaceChargeKg(body.furnaceChargeKg))
+        return
+      }
+    }
+
+    if (pathname === '/api/settings/electricity') {
+      if (req.method === 'GET') {
+        sendJson(res, 200, getElectricitySettings())
+        return
+      }
+      if (req.method === 'PUT') {
+        const body = await readJsonBody(req)
+        sendJson(res, 200, updateElectricitySettings(body))
+        return
+      }
+    }
+
+    if (pathname === '/api/electricity/readings') {
+      if (req.method === 'GET') {
+        sendJson(res, 200, {
+          readings: listElectricityReadings(),
+          summary: getElectricitySummary(),
+          baseline: getElectricityBaseline(),
+          meterStartKwh: getElectricityMeterStartKwh(),
+        })
+        return
+      }
+      if (req.method === 'POST') {
+        const body = await readJsonBody(req)
+        sendJson(res, 201, createElectricityReading(body))
+        return
+      }
+    }
+
+    const electricityReadingMatch = pathname.match(/^\/api\/electricity\/readings\/(\d+)$/)
+    if (electricityReadingMatch) {
+      const readingId = Number(electricityReadingMatch[1])
+      if (req.method === 'DELETE') {
+        sendJson(res, 200, deleteElectricityReading(readingId))
+        return
+      }
+      if (req.method === 'PATCH') {
+        const body = await readJsonBody(req)
+        sendJson(res, 200, updateElectricityReading(readingId, body))
         return
       }
     }

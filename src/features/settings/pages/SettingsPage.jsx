@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { fetchFurnaceSettings, updateFurnaceSettings } from '../../../api/settings'
+import { Link } from 'react-router-dom'
+import {
+  fetchElectricitySettings,
+  fetchFurnaceSettings,
+  updateElectricitySettings,
+  updateFurnaceSettings,
+} from '../../../api/settings'
 import {
   createRejectionType,
   deleteRejectionType,
@@ -31,6 +37,9 @@ export default function SettingsPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [furnaceChargeKg, setFurnaceChargeKg] = useState(String(DEFAULT_FURNACE_CHARGE_KG))
   const [furnaceSaving, setFurnaceSaving] = useState(false)
+  const [meterStartKwh, setMeterStartKwh] = useState('')
+  const [heatCountStart, setHeatCountStart] = useState('0')
+  const [electricitySaving, setElectricitySaving] = useState(false)
   const { runGuarded } = useSubmitGuard()
   const isReorderingRef = useRef(false)
 
@@ -44,7 +53,37 @@ export default function SettingsPage() {
     fetchFurnaceSettings()
       .then((data) => setFurnaceChargeKg(String(data.furnaceChargeKg)))
       .catch(() => {})
+    fetchElectricitySettings()
+      .then((data) => {
+        setMeterStartKwh(data.meterStartKwh != null ? String(data.meterStartKwh) : '')
+        setHeatCountStart(String(data.heatCountStart ?? 0))
+      })
+      .catch(() => {})
   }, [])
+
+  async function handleSaveElectricity(event) {
+    event.preventDefault()
+
+    await runGuarded(async () => {
+      setError('')
+      setMessage('')
+      setElectricitySaving(true)
+
+      try {
+        const result = await updateElectricitySettings({
+          meterStartKwh: meterStartKwh === '' ? undefined : Number(meterStartKwh),
+          heatCountStart: heatCountStart === '' ? 0 : Number(heatCountStart),
+        })
+        setMeterStartKwh(result.meterStartKwh != null ? String(result.meterStartKwh) : '')
+        setHeatCountStart(String(result.heatCountStart ?? 0))
+        setMessage('Electricity settings saved.')
+      } catch (err) {
+        setError(err.message || 'Unable to save electricity settings.')
+      } finally {
+        setElectricitySaving(false)
+      }
+    })
+  }
 
   async function handleSaveFurnace(event) {
     event.preventDefault()
@@ -195,6 +234,58 @@ export default function SettingsPage() {
           <button type="submit" disabled={furnaceSaving} className={buttonPrimaryClassName}>
             {furnaceSaving ? 'Saving...' : 'Save Furnace Settings'}
           </button>
+        </form>
+      </div>
+
+      <div className={cardClassName}>
+        <h2 className="text-lg font-semibold text-neutral-900">Electricity meter</h2>
+        <p className="mt-1 text-sm text-neutral-500">
+          Set the meter baseline and heats already completed before tracking. Logs on the{' '}
+          <Link to="/electricity" className="font-semibold text-[#2d6a6a] hover:text-[#255959]">
+            Electricity
+          </Link>{' '}
+          tab add to the running heat total.
+        </p>
+
+        <form
+          onSubmit={handleSaveElectricity}
+          className="mt-6 grid gap-4 sm:grid-cols-2 lg:max-w-2xl lg:grid-cols-2"
+        >
+          <div>
+            <label className={labelClassName} htmlFor="meter-start-kwh">
+              Start reading (kWh)
+            </label>
+            <input
+              id="meter-start-kwh"
+              type="number"
+              min="0"
+              step="any"
+              value={meterStartKwh}
+              onChange={(event) => setMeterStartKwh(event.target.value)}
+              className={inputClassName}
+              placeholder="e.g. 125000"
+            />
+          </div>
+          <div>
+            <label className={labelClassName} htmlFor="heat-count-start">
+              Start heat count
+            </label>
+            <input
+              id="heat-count-start"
+              type="number"
+              min="0"
+              step="1"
+              value={heatCountStart}
+              onChange={(event) => setHeatCountStart(event.target.value)}
+              className={inputClassName}
+              placeholder="e.g. 195"
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <button type="submit" disabled={electricitySaving} className={buttonPrimaryClassName}>
+              {electricitySaving ? 'Saving...' : 'Save Electricity Settings'}
+            </button>
+          </div>
         </form>
       </div>
 

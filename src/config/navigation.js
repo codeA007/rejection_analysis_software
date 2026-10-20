@@ -4,6 +4,7 @@ import {
   RejectionIcon,
   AnalysisIcon,
   YieldIcon,
+  ElectricityIcon,
   SettingsIcon,
   PartsIcon,
 } from '../components/icons/NavIcons'
@@ -37,6 +38,13 @@ export const NAV_ITEMS = [
     path: '/yield',
     pageTitle: 'Furnace Yield',
     icon: YieldIcon,
+  },
+  {
+    id: 'electricity',
+    label: 'Electricity',
+    path: '/electricity',
+    pageTitle: 'Melting Electricity',
+    icon: ElectricityIcon,
   },
   {
     id: 'monthly',
